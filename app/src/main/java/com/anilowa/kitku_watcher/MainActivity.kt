@@ -86,13 +86,13 @@ class MainActivity : ComponentActivity() {
 			override fun run() {
 				val bitmap = textureView.bitmap ?: return
 
-				// Convert to RGB_565 to fix color issues (removes alpha channel)
-				val rgbBitmap = createBitmap(bitmap.width, bitmap.height, Bitmap.Config.RGB_565)
-				val canvas = Canvas(rgbBitmap)
+				// Use ARGB_8888 which is the default and provides full color info including alpha channel
+				val argbBitmap = createBitmap(bitmap.width, bitmap.height, Bitmap.Config.ARGB_8888)
+				val canvas = Canvas(argbBitmap)
 				canvas.drawBitmap(bitmap, 0f, 0f, null)
 
 				val stream = ByteArrayOutputStream()
-				rgbBitmap.compress(Bitmap.CompressFormat.JPEG, 80, stream)
+				argbBitmap.compress(Bitmap.CompressFormat.JPEG, 80, stream)
 				latestJpeg = stream.toByteArray()
 				stream.close()
 				handler.postDelayed(this, 100)
@@ -180,6 +180,8 @@ class MainActivity : ComponentActivity() {
 }
 
 class MjpegServer(private val frameProvider: () -> ByteArray?) : NanoHTTPD(8080) {
+	private val boundary = "--frame"  // Boundary string, should be consistent
+
 	override fun serve(session: IHTTPSession): Response {
 		val input = PipedInputStream()
 		val output = PipedOutputStream(input)
@@ -188,8 +190,10 @@ class MjpegServer(private val frameProvider: () -> ByteArray?) : NanoHTTPD(8080)
 			try {
 				while (true) {
 					val jpeg = frameProvider() ?: continue
+
+					// Properly format the boundary and headers
 					val header = """
-                        --frame
+                        $boundary
                         Content-Type: image/jpeg
                         Content-Length: ${jpeg.size}
                         
@@ -197,7 +201,7 @@ class MjpegServer(private val frameProvider: () -> ByteArray?) : NanoHTTPD(8080)
 
 					output.write(header)
 					output.write(jpeg)
-					output.write("\r\n\r\n".toByteArray())
+					output.write("\r\n".toByteArray())  // Ensure proper termination
 					output.flush()
 
 					Thread.sleep(100)
@@ -209,9 +213,8 @@ class MjpegServer(private val frameProvider: () -> ByteArray?) : NanoHTTPD(8080)
 
 		return newChunkedResponse(
 			Response.Status.OK,
-			"multipart/x-mixed-replace; boundary=frame",
+			"multipart/x-mixed-replace; boundary=$boundary",  // Correct boundary here
 			input
 		)
 	}
 }
-
